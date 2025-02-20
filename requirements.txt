@@ -1,0 +1,9 @@
+torch
+huggingface_hub
+numpy
+scipy
+tqdm
+wandb
+transformers[torch]
+datasets
+einops
