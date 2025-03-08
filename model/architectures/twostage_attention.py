@@ -69,6 +69,7 @@ class TwoStageAttentionLayer(nn.Module):
             "b ts_length ts_dim d_model -> (b ts_dim) ts_length d_model",
         )
 
+        time_in = self.norm1(time_in)
         # self-attend all tokens time wise
         time_enc, _ = self.time_attention(
             time_in,
@@ -77,12 +78,14 @@ class TwoStageAttentionLayer(nn.Module):
             attn_mask=attention_mask_time,
             key_padding_mask=key_padding_mask_time,
         )
-
         time_out = time_in + self.dropout(time_enc)
-        time_out = self.norm1(time_out)
+        # time_out = self.norm1(time_out)
+
+
+        time_out = self.norm2(time_out)
         ff_out = self.MLP1(time_out)
         time_out = time_out + self.dropout(ff_out)
-        time_out = self.norm2(time_out)
+        # time_out = self.norm2(time_out)
 
         # Cross Dimension Stage: Use normal attention across dimensions instead of router
         dimension_in = rearrange(
@@ -113,6 +116,7 @@ class TwoStageAttentionLayer(nn.Module):
         # )
 
         # Apply normal self-attention across dimensions, similar to time attention
+        dimension_in = self.norm3(dimension_in)
         dimension_enc, _ = self.dimension_attention(
             dimension_in,
             dimension_in,
@@ -121,10 +125,12 @@ class TwoStageAttentionLayer(nn.Module):
         )
 
         dimension_out = dimension_in + self.dropout(dimension_enc)
-        dimension_out = self.norm3(dimension_out)
+        # dimension_out = self.norm3(dimension_out)
+
+        dimension_out = self.norm4(dimension_out)
         ff_out = self.MLP2(dimension_out)
         dimension_out = dimension_out + self.dropout(ff_out)
-        dimension_out = self.norm4(dimension_out)
+        # dimension_out = self.norm4(dimension_out)
 
         twostage_output = rearrange(
             dimension_out,
