@@ -1,11 +1,13 @@
 from transformers import PretrainedConfig
 
+
 class Seq2SeqConfig(PretrainedConfig):
     """
     Custom Transformer Config.
     """
+
     model_type = "custom_code"
-    
+
     def __init__(
         self,
         vocab_size_src=512,
@@ -19,13 +21,13 @@ class Seq2SeqConfig(PretrainedConfig):
         bos_token_id=1,
         eos_token_id=2,
         sequence_length=8192,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(
             pad_token_id=pad_token_id,
             bos_token_id=bos_token_id,
             eos_token_id=eos_token_id,
-            **kwargs
+            **kwargs,
         )
         self.vocab_size_src = vocab_size_src
         self.vocab_size_tgt = vocab_size_tgt
@@ -43,6 +45,7 @@ class Seq2SeqCrossConfig(Seq2SeqConfig):
     """
     Subclasses Seq2SeqConfig and adds source and target sequence dimensions, for CrossFormer.
     """
+
     def __init__(
         self,
         source_sequence_dimension=70,
@@ -59,9 +62,8 @@ class Seq2SeqCrossConfig(Seq2SeqConfig):
         bos_token_id=1,
         eos_token_id=2,
         sequence_length=64,
-        **kwargs
+        **kwargs,
     ):
-        
         super().__init__(
             vocab_size_src=vocab_size_src,
             vocab_size_tgt=vocab_size_tgt,
@@ -74,9 +76,8 @@ class Seq2SeqCrossConfig(Seq2SeqConfig):
             bos_token_id=bos_token_id,
             eos_token_id=eos_token_id,
             sequence_length=sequence_length,
-            **kwargs
+            **kwargs,
         )
         self.source_sequence_dimension = source_sequence_dimension
         self.target_sequence_dimension = target_sequence_dimension
         self.router_dim = router_dim
-
