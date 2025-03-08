@@ -7,41 +7,57 @@ from twostage_attention import TwoStageAttentionLayer
 class CrossFormer(nn.module):
     def __init__(
         self,
-        source_num_channels: int,
-        target_num_channels: int,
+        src_num_channels: int,
+        tgt_num_channels: int,
         max_sequence_length: int,
+        patch_size: int,
         num_heads: int,
         num_enc_layers: int,
         num_dec_layers: int,
     ) -> None:
         super().__init__()
 
-        self.source_num_channels = source_num_channels
-        self.target_num_channels = target_num_channels
+        self.src_num_channels = src_num_channels
+        self.tgt_num_channels = tgt_num_channels
         self.max_sequence_length = max_sequence_length
+        self.coarsened_length = max_sequence_length // patch_size
+        self.patch_size = patch_size
         self.num_heads = num_heads
         self.num_enc_layers = num_enc_layers
         self.num_dec_layers = num_dec_layers
 
         self.encoder = EncoderBlock(
-            self.max_sequence_length,
-            self.source_num_channels,
+            self.coarsened_length,
+            self.src_num_channels,
             self.num_heads,
             self.num_enc_layers,
         )
         self.decoder = DecoderBlock(
-            self.max_sequence_length,
-            self.target_num_channels,
+            self.coarsened_length,
+            self.tgt_num_channels,
             self.num_heads,
             self.num_dec_layers,
         )
 
+        self.src_patcher = Patcher(
+            in_channels=src_num_channels, patch_size=self.patch_size
+        )
+        self.tgt_patcher = Patcher(
+            in_channels=tgt_num_channels, patch_size=self.patch_size
+        )
+
+        self.depatcher = nn.Linear(self.coarse_length, self.max_sequence_length)
+
     def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
-        encoder_output = self.encoder(src)
+        src_patches = self.src_patcher(src)
+        encoder_output = self.encoder(src_patches)
 
-        decoder_output = self.decoder(tgt, encoder_output)
+        tgt_patches = self.tgt_patcher(tgt)
+        decoder_output = self.decoder(tgt_patches, encoder_output)
 
-        return decoder_output
+        output = self.depatcher(decoder_output)
+
+        return output
 
     def _create_causal_mask(self, size: int) -> torch.Tensor:
         """Create a causal mask for the decoder. Prevents decoder from attending to future tokens."""
@@ -116,3 +132,41 @@ class DecoderBlock(nn.Module):
             )
 
         return cross_attn_output
+
+
+class Patcher(nn.Module):
+    def __init__(self, in_channels: int, patch_size: int):
+        """
+        Args:
+            in_channels: Number of input channels
+            patch_size: Size of each patch (will be the stride of the convolution)
+        """
+        super().__init__()
+
+        self.patch_size = patch_size
+        self.conv = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=in_channels,
+            kernel_size=patch_size,
+            stride=patch_size,
+            bias=False,
+            groups=in_channels,  # Separate conv for each channel
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Input tensor of shape (batch, time, channels)
+        Returns:
+            Tensor of shape (batch, time//patch_size, channels)
+        """
+        # Convert from (batch, time, channels) to (batch, channels, time)
+        x = x.transpose(1, 2)
+
+        # Apply convolution to get (batch, channels, time//patch_size)
+        x = self.conv(x)
+
+        # Convert back to (batch, time//patch_size, channels)
+        x = x.transpose(1, 2)
+
+        return x
