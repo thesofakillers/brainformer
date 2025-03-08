@@ -21,15 +21,21 @@ class TwoStageAttentionLayer(nn.Module):
             embed_dim, num_heads, batch_first=True, dropout=dropout, bias=False
         )
 
-        self.time_to_router_attention = nn.MultiheadAttention(
+        # Replace router-based attention with normal attention for dimension stage
+        self.dimension_attention = nn.MultiheadAttention(
             embed_dim, num_heads, batch_first=True, dropout=dropout, bias=False
         )
 
-        self.router_to_dimension_attention = nn.MultiheadAttention(
-            embed_dim, num_heads, batch_first=True, dropout=dropout, bias=False
-        )
+        # Comment out router-related components
+        # self.time_to_router_attention = nn.MultiheadAttention(
+        #     embed_dim, num_heads, batch_first=True, dropout=dropout, bias=False
+        # )
 
-        self.router = nn.Parameter(torch.randn(ts_length + 1, router_dim, embed_dim))
+        # self.router_to_dimension_attention = nn.MultiheadAttention(
+        #     embed_dim, num_heads, batch_first=True, dropout=dropout, bias=False
+        # )
+
+        # self.router = nn.Parameter(torch.randn(ts_length + 1, router_dim, embed_dim))
 
         self.dropout = nn.Dropout(dropout)
 
@@ -78,7 +84,7 @@ class TwoStageAttentionLayer(nn.Module):
         time_out = time_out + self.dropout(ff_out)
         time_out = self.norm2(time_out)
 
-        # Cross Dimension Stage: use a small router matrix and then distribute messages to build D-to-D connections
+        # Cross Dimension Stage: Use normal attention across dimensions instead of router
         dimension_in = rearrange(
             time_out,
             "(b ts_dim) ts_length d_model -> (b ts_length) ts_dim d_model",
@@ -87,25 +93,34 @@ class TwoStageAttentionLayer(nn.Module):
             ts_length=timesteps,
             d_model=embed_dim,
         )
-        batch_router = repeat(
-            self.router,
-            "ts_length router_dim d_model -> (repeat ts_length) router_dim d_model",
-            repeat=batch,
-            ts_length=timesteps,
-        )
 
-        # dimensions are never padded, so no key_padding_mask_dimension
-        dimension_buffer, _ = self.time_to_router_attention(
-            batch_router, dimension_in, dimension_in
-        )
+        # Comment out router-related code
+        # batch_router = repeat(
+        #     self.router,
+        #     "ts_length router_dim d_model -> (repeat ts_length) router_dim d_model",
+        #     repeat=batch,
+        #     ts_length=timesteps,
+        # )
 
-        dimension_received_router, _ = self.router_to_dimension_attention(
+        # dimension_buffer, _ = self.time_to_router_attention(
+        #     batch_router, dimension_in, dimension_in
+        # )
+
+        # dimension_received_router, _ = self.router_to_dimension_attention(
+        #     dimension_in,
+        #     dimension_buffer,
+        #     dimension_buffer,
+        # )
+
+        # Apply normal self-attention across dimensions, similar to time attention
+        dimension_enc, _ = self.dimension_attention(
             dimension_in,
-            dimension_buffer,
-            dimension_buffer,
+            dimension_in,
+            dimension_in,
+            attn_mask=attention_mask_dimension,
         )
 
-        dimension_out = dimension_in + self.dropout(dimension_received_router)
+        dimension_out = dimension_in + self.dropout(dimension_enc)
         dimension_out = self.norm3(dimension_out)
         ff_out = self.MLP2(dimension_out)
         dimension_out = dimension_out + self.dropout(ff_out)
