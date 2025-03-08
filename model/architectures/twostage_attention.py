@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from einops import rearrange, repeat
+import math
 
 from typing import Optional
 
@@ -32,13 +33,10 @@ class TwoStageAttentionLayer(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-        self.pretime_norm = nn.LayerNorm(embed_dim)
-        self.prerouter_norm = nn.LayerNorm(embed_dim)
-        self.predimension_norm = nn.LayerNorm(embed_dim)
-
         self.norm1 = nn.LayerNorm(embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
         self.norm3 = nn.LayerNorm(embed_dim)
+        self.norm4 = nn.LayerNorm(embed_dim)
         self.MLP1 = nn.Sequential(
             nn.Linear(embed_dim, ff_dim), nn.GELU(), nn.Linear(ff_dim, embed_dim)
         )
@@ -64,8 +62,6 @@ class TwoStageAttentionLayer(nn.Module):
             x,
             "b ts_length ts_dim d_model -> (b ts_dim) ts_length d_model",
         )
-        # pre-normalization
-        time_in = self.pretime_norm(time_in)
 
         # self-attend all tokens time wise
         time_enc, _ = self.time_attention(
@@ -80,6 +76,7 @@ class TwoStageAttentionLayer(nn.Module):
         time_out = self.norm1(time_out)
         ff_out = self.MLP1(time_out)
         time_out = time_out + self.dropout(ff_out)
+        time_out = self.norm2(time_out)
 
         # Cross Dimension Stage: use a small router matrix and then distribute messages to build D-to-D connections
         dimension_in = rearrange(
@@ -96,14 +93,11 @@ class TwoStageAttentionLayer(nn.Module):
             repeat=batch,
             ts_length=timesteps,
         )
-        batch_router = self.prerouter_norm(batch_router)
 
         # dimensions are never padded, so no key_padding_mask_dimension
         dimension_buffer, _ = self.time_to_router_attention(
             batch_router, dimension_in, dimension_in
         )
-
-        dimension_in = self.predimension_norm(dimension_in)
 
         dimension_received_router, _ = self.router_to_dimension_attention(
             dimension_in,
@@ -112,9 +106,10 @@ class TwoStageAttentionLayer(nn.Module):
         )
 
         dimension_out = dimension_in + self.dropout(dimension_received_router)
-        dimension_out = self.norm2(dimension_out)
+        dimension_out = self.norm3(dimension_out)
         ff_out = self.MLP2(dimension_out)
         dimension_out = dimension_out + self.dropout(ff_out)
+        dimension_out = self.norm4(dimension_out)
 
         twostage_output = rearrange(
             dimension_out,
