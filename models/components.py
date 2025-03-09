@@ -148,3 +148,13 @@ class Depatcher(nn.Module):
         x = rearrange(x, "b c t -> b t c")
 
         return x
+
+
+class PositionalEmbedding(nn.Module):
+    def __init__(self, seq_length: int, embed_dim: int):
+        super().__init__()
+        self.pos_embed = nn.Parameter(torch.empty(1, seq_length, embed_dim))
+        nn.init.uniform_(self.pos_embed, -0.01, 0.01)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.pos_embed

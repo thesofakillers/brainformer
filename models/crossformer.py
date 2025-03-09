@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 from einops import repeat
 
-from models.components import EncoderBlock, DecoderBlock, Patcher, Depatcher
+from models.components import EncoderBlock, DecoderBlock, Patcher, Depatcher, PositionalEmbedding
 
 
 class CrossFormer(nn.Module):
@@ -54,6 +54,8 @@ class CrossFormer(nn.Module):
         self.tgt_patcher = Patcher(
             in_seq_len=max_sequence_length, patch_size=self.patch_size
         )
+        self.pos_embed_encoder = PositionalEmbedding(self.coarsened_length, self.src_num_channels)
+        self.pos_embed_decoder = PositionalEmbedding(self.coarsened_length, self.tgt_num_channels)
 
         self.depatcher = Depatcher(
             out_seq_len=self.max_sequence_length, patch_size=self.patch_size
@@ -63,11 +65,13 @@ class CrossFormer(nn.Module):
         batch_size, _, _ = src.shape
         # b, 256, C_src -> b, 64, C_src
         src_patches = self.src_patcher(src)
+        src_patches = self.pos_embed_encoder(src_patches)
         encoder_output = self.encoder(src_patches)
 
         tgt = repeat(self.initial_tgt, "1 t c -> b t c", b=batch_size)
         # b, 256, C_tgt -> b, 64, C_tgt
         tgt_patches = self.tgt_patcher(tgt)
+        tgt_patches = self.pos_embed_decoder(tgt_patches)
         decoder_output = self.decoder(tgt_patches, encoder_output)
 
         # b, 64, C -> b, 256, C
