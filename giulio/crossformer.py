@@ -61,11 +61,6 @@ class CrossFormer(nn.Module):
 
         return output
 
-    def _create_causal_mask(self, size: int) -> torch.Tensor:
-        """Create a causal mask for the decoder. Prevents decoder from attending to future tokens."""
-        mask = torch.triu(torch.ones(size, size) * float("-inf"), diagonal=1)
-        return mask.to(dtype=torch.float)
-
 
 class EncoderBlock(nn.Module):
     def __init__(self, seq_len: int, num_channels: int, num_heads: int, n_layers: int):
