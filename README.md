@@ -1,3 +1,6 @@
+THIS README IS OUT OF DATE/STALE. IGNORE FOR NOW.
+
+
 # brainformer
 A transformer-based approach to predicting MEG (Magnetoencephalography) readings from EEG (Electroencephalography) sensory inputs. The project leverages multi-dimensional attention to predict over multi-channel timeseries data.
 
