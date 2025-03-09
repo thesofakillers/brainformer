@@ -569,7 +569,7 @@ def visualize_predictions(model, dataloader, device, epoch, args):
     plt.tight_layout(rect=[0, 0, 1, 0.97])
 
     # Save the figure
-    viz_path = os.path.join(viz_dir, f"visualization_epoch_{epoch + 1}.png")
+    viz_path = os.path.join(viz_dir, f"visualization.png")
     plt.savefig(viz_path)
     plt.close()
 
@@ -578,7 +578,7 @@ def visualize_predictions(model, dataloader, device, epoch, args):
     # Log to wandb if enabled
     if args.use_wandb:
         # Log regular visualization
-        wandb_log_dict = {f"visualization_epoch_{epoch + 1}": wandb.Image(viz_path)}
+        wandb_log_dict = {f"visualization": wandb.Image(viz_path)}
 
         # Create heatmap for input data
         fig_input, ax_input = plt.subplots(figsize=(12, 8))
@@ -590,7 +590,7 @@ def visualize_predictions(model, dataloader, device, epoch, args):
         ax_input.set_ylabel("Input Channels")
         plt.colorbar(im_input, ax=ax_input)
         plt.tight_layout()
-        wandb_log_dict[f"heatmap_input_epoch_{epoch + 1}"] = wandb.Image(fig_input)
+        wandb_log_dict[f"heatmap_input"] = wandb.Image(fig_input)
 
         # Create heatmap for target data
         fig_target, ax_target = plt.subplots(figsize=(12, 8))
@@ -602,7 +602,7 @@ def visualize_predictions(model, dataloader, device, epoch, args):
         ax_target.set_ylabel("Output Channels")
         plt.colorbar(im_target, ax=ax_target)
         plt.tight_layout()
-        wandb_log_dict[f"heatmap_target_epoch_{epoch + 1}"] = wandb.Image(fig_target)
+        wandb_log_dict[f"heatmap_target"] = wandb.Image(fig_target)
 
         # Create heatmap for prediction data
         fig_pred, ax_pred = plt.subplots(figsize=(12, 8))
@@ -614,7 +614,7 @@ def visualize_predictions(model, dataloader, device, epoch, args):
         ax_pred.set_ylabel("Output Channels")
         plt.colorbar(im_pred, ax=ax_pred)
         plt.tight_layout()
-        wandb_log_dict[f"heatmap_prediction_epoch_{epoch + 1}"] = wandb.Image(fig_pred)
+        wandb_log_dict[f"heatmap_prediction"] = wandb.Image(fig_pred)
 
         # Create heatmap for prediction vs target difference
         fig_diff, ax_diff = plt.subplots(figsize=(12, 8))
@@ -627,7 +627,7 @@ def visualize_predictions(model, dataloader, device, epoch, args):
         ax_diff.set_ylabel("Output Channels")
         plt.colorbar(im_diff, ax=ax_diff)
         plt.tight_layout()
-        wandb_log_dict[f"heatmap_error_epoch_{epoch + 1}"] = wandb.Image(fig_diff)
+        wandb_log_dict[f"heatmap_error"] = wandb.Image(fig_diff)
 
         # Log all images to wandb
         wandb.log(wandb_log_dict)
