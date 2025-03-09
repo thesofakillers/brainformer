@@ -4,7 +4,7 @@ from torch import nn
 from twostage_attention import TwoStageAttentionLayer
 
 
-class CrossFormer(nn.module):
+class CrossFormer(nn.Module):
     def __init__(
         self,
         src_num_channels: int,
@@ -34,6 +34,7 @@ class CrossFormer(nn.module):
         )
         self.decoder = DecoderBlock(
             self.coarsened_length,
+            self.src_num_channels,
             self.tgt_num_channels,
             self.num_heads,
             self.num_dec_layers,
@@ -46,7 +47,8 @@ class CrossFormer(nn.module):
             in_channels=tgt_num_channels, patch_size=self.patch_size
         )
 
-        self.depatcher = nn.Linear(self.coarse_length, self.max_sequence_length)
+        # b, s//p, tgt_channels -> b, s, tgt_channels
+        # self.depatcher = TODO
 
     def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
         src_patches = self.src_patcher(src)
@@ -83,25 +85,28 @@ class EncoderBlock(nn.Module):
         returns:
             torch.tensor of shape (batch, seq_len, src_channels)
         """
-        for encoder in self.self_attn_layers:
+        for encoder in self.layers:
             x = encoder(x)
 
         return x
 
 
 class DecoderBlock(nn.Module):
-    def __init__(self, seq_len, num_channels, num_heads, n_layers):
+    def __init__(self, seq_len, src_channels, tgt_channels, num_heads, n_layers):
         super().__init__()
         self.self_attn_layers = nn.ModuleList(
             [
-                TwoStageAttentionLayer(seq_len, num_channels, num_heads)
+                TwoStageAttentionLayer(seq_len, tgt_channels, num_heads)
                 for _ in range(n_layers)
             ]
+        )
+        self.encoder_proj_layers = nn.ModuleList(
+            [nn.Linear(src_channels, tgt_channels) for _ in range(n_layers)]
         )
         self.cross_attn_layers = nn.ModuleList(
             [
                 nn.MultiheadAttention(
-                    embed_dim=num_channels, num_heads=num_heads, batch_first=True
+                    embed_dim=tgt_channels, num_heads=num_heads, batch_first=True
                 )
                 for _ in range(n_layers)
             ]
@@ -116,19 +121,22 @@ class DecoderBlock(nn.Module):
         returns:
             torch.tensor of shape (batch, seq_len, tgt_channels)
         """
-        for self_attn_layer, cross_attn_layer in zip(
-            self.self_attn_layers, self.cross_attn_layers
+        for self_attn_layer, encoder_projector, cross_attn_layer in zip(
+            self.self_attn_layers, self.encoder_proj_layers, self.cross_attn_layers
         ):
             # b, s, tgt_channels
             self_attn_output = self_attn_layer(x)
 
+            # b, s, src_channels -> b, s, tgt_channels
+            projected_encoder_out = encoder_projector(encoder_output)
+
             # b, s, tgt_channels
-            cross_attn_output = cross_attn_layer(
+            cross_attn_output, _ = cross_attn_layer(
                 # b, s, tgt_channels
                 self_attn_output,
-                # b, s, src_channels
-                encoder_output,
-                encoder_output,
+                # b, s, tgt_channels
+                projected_encoder_out,
+                projected_encoder_out,
             )
 
         return cross_attn_output

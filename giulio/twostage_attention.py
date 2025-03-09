@@ -50,7 +50,7 @@ class TwoStageAttentionLayer(nn.Module):
         """
         batch, timesteps, num_channels = x.shape
 
-        time_in = self.norm1(time_in)
+        time_in = self.norm1(x)
         time_enc, _ = self.time_attention(time_in, time_in, time_in)
         time_out = time_in + self.dropout(time_enc)
 
