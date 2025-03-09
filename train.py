@@ -349,7 +349,7 @@ def train_epoch(
         progress_bar.set_postfix({"loss": f"{loss.item():.4f}"})
 
         # Log batch metrics
-        if batch_idx % args.log_every == 0:
+        if not args.use_wandb and batch_idx % args.log_every == 0:
             logger.info(
                 f"Epoch {epoch + 1}/{args.epochs}, Batch {batch_idx}/{num_batches}, Loss: {loss.item():.4f}"
             )
@@ -426,13 +426,13 @@ def save_checkpoint(model, optimizer, epoch, loss, args, is_best=False):
 
     torch.save(checkpoint, filename)
 
-    logger.info(f"Checkpoint saved to {filename}")
+    logger.debug(f"Checkpoint saved to {filename}")
 
     # Save best model if this is the best so far
     if is_best:
         best_filename = os.path.join(args.save_dir, "brainformer_best.pt")
         torch.save(checkpoint, best_filename)
-        logger.info(f"Best model saved to {best_filename}")
+        logger.debug(f"Best model saved to {best_filename}")
 
 
 def plot_training_history(train_losses, val_losses, args):
@@ -550,7 +550,7 @@ def visualize_predictions(model, dataloader, device, epoch, args):
     plt.savefig(viz_path)
     plt.close()
 
-    logger.info(f"Sample visualization saved to {viz_path}")
+    logger.debug(f"Sample visualization saved to {viz_path}")
 
     # Log to wandb if enabled
     if args.use_wandb:
@@ -755,9 +755,10 @@ def main():
         val_losses.append(val_loss)
 
         # Log epoch results
-        logger.info(
-            f"Epoch {epoch + 1}/{args.epochs} completed - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}"
-        )
+        if not args.use_wandb:
+            logger.info(
+                f"Epoch {epoch + 1}/{args.epochs} completed - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}"
+            )
 
         # Log to wandb if enabled
         if args.use_wandb:
@@ -772,7 +773,7 @@ def main():
         is_best = val_loss < best_val_loss
         if is_best:
             best_val_loss = val_loss
-            logger.info(f"New best validation loss: {best_val_loss:.4f}")
+            logger.debug(f"New best validation loss: {best_val_loss:.4f}")
 
         # Save checkpoint
         if args.save_checkpoints and (
