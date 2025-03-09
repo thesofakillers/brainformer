@@ -83,22 +83,19 @@ class DecoderBlock(nn.Module):
 
 
 class Patcher(nn.Module):
-    def __init__(self, in_channels: int, patch_size: int):
+    def __init__(self, in_seq_len: int, patch_size: int):
         """
         Args:
-            in_channels: Number of input channels
+            in_seq_len: Length of the input sequence
             patch_size: Size of each patch (will be the stride of the convolution)
         """
         super().__init__()
 
         self.patch_size = patch_size
-        self.conv = nn.Conv1d(
-            in_channels=in_channels,
-            out_channels=in_channels,
-            kernel_size=patch_size,
-            stride=patch_size,
-            bias=False,
-            groups=in_channels,  # Separate conv for each channel
+        self.mlp = nn.Sequential(
+            nn.Linear(in_seq_len, in_seq_len // patch_size),
+            nn.ReLU(),
+            nn.Linear(in_seq_len // patch_size, in_seq_len // patch_size),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -111,8 +108,7 @@ class Patcher(nn.Module):
         # Convert from (batch, time, channels) to (batch, channels, time)
         x = rearrange(x, "b t c -> b c t")
 
-        # Apply convolution to get (batch, channels, time//patch_size)
-        x = self.conv(x)
+        x = self.mlp(x)
 
         # Convert back to (batch, time//patch_size, channels)
         x = rearrange(x, "b c t -> b t c")
@@ -121,22 +117,19 @@ class Patcher(nn.Module):
 
 
 class Depatcher(nn.Module):
-    def __init__(self, in_channels: int, patch_size: int):
+    def __init__(self, out_seq_len: int, patch_size: int):
         """
         Args:
-            in_channels: Number of input channels
-            patch_size: Size of each patch (will be the stride of the transposed convolution)
+            out_seq_len: Length of the output sequence
+            patch_size: Size to expand each patch by (inverse of Patcher's patch_size)
         """
         super().__init__()
 
         self.patch_size = patch_size
-        self.conv_transpose = nn.ConvTranspose1d(
-            in_channels=in_channels,
-            out_channels=in_channels,
-            kernel_size=patch_size,
-            stride=patch_size,
-            bias=False,
-            groups=in_channels,  # Separate conv for each channel
+        self.mlp = nn.Sequential(
+            nn.Linear(out_seq_len // patch_size, out_seq_len),
+            nn.ReLU(),
+            nn.Linear(out_seq_len, out_seq_len),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -149,8 +142,7 @@ class Depatcher(nn.Module):
         # Convert from (batch, time//patch_size, channels) to (batch, channels, time//patch_size)
         x = rearrange(x, "b t c -> b c t")
 
-        # Apply transposed convolution to get (batch, channels, time)
-        x = self.conv_transpose(x)
+        x = self.mlp(x)
 
         # Convert back to (batch, time, channels)
         x = rearrange(x, "b c t -> b t c")

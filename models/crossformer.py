@@ -42,14 +42,14 @@ class CrossFormer(nn.Module):
         )
 
         self.src_patcher = Patcher(
-            in_channels=src_num_channels, patch_size=self.patch_size
+            in_seq_len=max_sequence_length, patch_size=self.patch_size
         )
         self.tgt_patcher = Patcher(
-            in_channels=tgt_num_channels, patch_size=self.patch_size
+            in_seq_len=max_sequence_length, patch_size=self.patch_size
         )
 
         self.depatcher = Depatcher(
-            in_channels=self.tgt_num_channels, patch_size=self.patch_size
+            out_seq_len=self.max_sequence_length, patch_size=self.patch_size
         )
 
     def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
