@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu",
+        default="cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu",
         help="Device to train on (cuda/cpu)",
     )
     parser.add_argument(
@@ -40,7 +40,7 @@ def train_crossformer(
     model: CrossFormer,
     train_loader: DataLoader,
     num_epochs: int = 100,
-    learning_rate: float = 1e-4,
+    learning_rate: float = 3e-4,
     device: str = "cuda"
     if torch.cuda.is_available()
     else "mps"
@@ -66,7 +66,10 @@ def train_crossformer(
     # Setup training
     model = model.to(device)
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
+
+    # Initialize global step counter
+    global_step = 0
 
     for epoch in range(num_epochs):
         # Training phase
@@ -89,17 +92,28 @@ def train_crossformer(
 
             train_loss += loss.item()
             train_batches += 1
+            global_step += 1
+
+            # Log metrics for each batch
+            wandb.log(
+                {
+                    "batch_loss": loss.item(),
+                    "epoch": epoch + 1,
+                    "global_step": global_step,
+                },
+                step=global_step,
+            )
 
             progress_bar.set_postfix({"train_loss": loss.item()})
 
         avg_train_loss = train_loss / train_batches
-
-        # Log metrics
         wandb.log(
             {
                 "epoch": epoch + 1,
-                "train_loss": avg_train_loss,
-            }
+                "avg_train_loss": avg_train_loss,
+                "global_step": global_step,
+            },
+            step=global_step,
         )
 
         print(f"Epoch {epoch + 1}/{num_epochs}")
