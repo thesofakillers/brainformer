@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+from einops import repeat
 
 from models.components import EncoderBlock, DecoderBlock, Patcher, Depatcher
 
@@ -27,6 +28,12 @@ class CrossFormer(nn.Module):
         self.num_enc_layers = num_enc_layers
         self.num_dec_layers = num_dec_layers
 
+        # Initialize learnable starting sequence for decoder
+        self.initial_tgt = nn.Parameter(
+            torch.empty(1, max_sequence_length, tgt_num_channels)
+        )
+        nn.init.uniform_(self.initial_tgt, -0.01, 0.01)
+
         self.encoder = EncoderBlock(
             self.coarsened_length,
             self.src_num_channels,
@@ -52,12 +59,14 @@ class CrossFormer(nn.Module):
             out_seq_len=self.max_sequence_length, patch_size=self.patch_size
         )
 
-    def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
-        # b, 256, C -> b, 64, C
+    def forward(self, src: torch.Tensor) -> torch.Tensor:
+        batch_size, _, _ = src.shape
+        # b, 256, C_src -> b, 64, C_src
         src_patches = self.src_patcher(src)
         encoder_output = self.encoder(src_patches)
 
-        # b, 256, C -> b, 64, C
+        tgt = repeat(self.initial_tgt, "1 t c -> b t c", b=batch_size)
+        # b, 256, C_tgt -> b, 64, C_tgt
         tgt_patches = self.tgt_patcher(tgt)
         decoder_output = self.decoder(tgt_patches, encoder_output)
 

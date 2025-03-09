@@ -324,18 +324,9 @@ def train_epoch(
         inputs = inputs[:, : args.seq_len, :]
         targets = targets[:, : args.seq_len, :]
 
-        # Create shifted targets for teacher forcing
-        # Target input: [0, t_1, t_2, ..., t_{n-1}]
-        # Target output: [t_1, t_2, ..., t_n]
-        target_input = torch.zeros_like(targets)
-        target_input[:, 1:, :] = targets[
-            :, :-1, :
-        ]  # Shift right, pad with zeros at start
-        target_output = targets.clone()  # The actual targets we want to predict
-
         # Forward pass with teacher forcing
-        outputs = model(inputs, target_input)
-        loss = criterion(outputs, target_output)
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
 
         # Backward pass and optimize
         if isinstance(optimizer, list):
@@ -399,18 +390,8 @@ def validate(model, dataloader, criterion, device, seq_len):
             inputs = inputs[:, :seq_len, :]
             targets = targets[:, :seq_len, :]
 
-            # Create shifted targets for teacher forcing
-            # Target input: [0, t_1, t_2, ..., t_{n-1}]
-            # Target output: [t_1, t_2, ..., t_n]
-            target_input = torch.zeros_like(targets)
-            target_input[:, 1:, :] = targets[
-                :, :-1, :
-            ]  # Shift right, pad with zeros at start
-            target_output = targets.clone()  # The actual targets we want to predict
-
-            # Forward pass with teacher forcing
-            outputs = model(inputs, target_input)
-            loss = criterion(outputs, target_output)
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
 
             # Update metrics
             val_loss += loss.item()
@@ -496,13 +477,9 @@ def visualize_predictions(model, dataloader, device, epoch, args):
     input_sample = input_sample[:, : args.seq_len, :]
     target_sample = target_sample[:, : args.seq_len, :]
 
-    # Create target input with initial zero
-    target_input = torch.zeros_like(target_sample)
-    target_input[:, 1:, :] = target_sample[:, :-1, :]
-
     # Generate prediction
     with torch.no_grad():
-        prediction = model(input_sample, target_input)
+        prediction = model(input_sample)
 
     # Move tensors to CPU for plotting
     input_sample = input_sample.cpu().numpy()[0]  # Shape: [seq_len, input_channels]
