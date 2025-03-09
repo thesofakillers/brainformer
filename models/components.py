@@ -23,8 +23,8 @@ class EncoderBlock(nn.Module):
         returns:
             torch.tensor of shape (batch, seq_len, src_channels)
         """
-        for encoder in self.layers:
-            x = encoder(x)
+        for layer in self.layers:
+            x = layer(x)
 
         return x
 
