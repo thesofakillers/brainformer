@@ -47,8 +47,9 @@ class CrossFormer(nn.Module):
             in_channels=tgt_num_channels, patch_size=self.patch_size
         )
 
-        # b, s//p, tgt_channels -> b, s, tgt_channels
-        # self.depatcher = TODO
+        self.depatcher = Depatcher(
+            in_channels=self.tgt_num_channels, patch_size=self.patch_size
+        )
 
     def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
         src_patches = self.src_patcher(src)
@@ -164,12 +165,50 @@ class Patcher(nn.Module):
             Tensor of shape (batch, time//patch_size, channels)
         """
         # Convert from (batch, time, channels) to (batch, channels, time)
-        x = x.transpose(1, 2)
+        x = rearrange(x, "b t c -> b c t")
 
         # Apply convolution to get (batch, channels, time//patch_size)
         x = self.conv(x)
 
         # Convert back to (batch, time//patch_size, channels)
-        x = x.transpose(1, 2)
+        x = rearrange(x, "b c t -> b t c")
+
+        return x
+
+
+class Depatcher(nn.Module):
+    def __init__(self, in_channels: int, patch_size: int):
+        """
+        Args:
+            in_channels: Number of input channels
+            patch_size: Size of each patch (will be the stride of the transposed convolution)
+        """
+        super().__init__()
+
+        self.patch_size = patch_size
+        self.conv_transpose = nn.ConvTranspose1d(
+            in_channels=in_channels,
+            out_channels=in_channels,
+            kernel_size=patch_size,
+            stride=patch_size,
+            bias=False,
+            groups=in_channels,  # Separate conv for each channel
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Input tensor of shape (batch, time//patch_size, channels)
+        Returns:
+            Tensor of shape (batch, time, channels)
+        """
+        # Convert from (batch, time//patch_size, channels) to (batch, channels, time//patch_size)
+        x = rearrange(x, "b t c -> b c t")
+
+        # Apply transposed convolution to get (batch, channels, time)
+        x = self.conv_transpose(x)
+
+        # Convert back to (batch, time, channels)
+        x = rearrange(x, "b c t -> b t c")
 
         return x
