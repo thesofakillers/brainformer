@@ -8,11 +8,9 @@ import matplotlib.pyplot as plt
 import argparse
 from tqdm import tqdm
 import logging
-from datetime import datetime
 import wandb
 
-from giulio.crossformer import CrossFormer
-from models.brainformer import BrainFormer
+from crossformer import CrossFormer
 
 # Set up logging
 logging.basicConfig(
@@ -63,12 +61,6 @@ def parse_args():
         type=str,
         default="outputs.pt",
         help="Filename of output data (default: outputs.pt)",
-    )
-    parser.add_argument(
-        "--transpose_data",
-        action="store_true",
-        default=False,
-        help="Transpose dimensions 1 and 2 of the input data (seq_len and channels)",
     )
 
     # Model parameters
@@ -295,9 +287,9 @@ def create_model(args):
 
     # Create model
     model = CrossFormer(
-        src_num_channels=70,  # EEG channels
-        tgt_num_channels=306,  # MEG channels
-        max_sequence_length=256,  # Sequence length
+        src_num_channels=args.input_channels,  # EEG channels
+        tgt_num_channels=args.output_channels,  # MEG channels
+        max_sequence_length=args.seq_len,  # Sequence length
         patch_size=args.patch_size,
         num_heads=args.num_heads,
         num_enc_layers=args.num_enc_layers,
@@ -645,7 +637,13 @@ def main():
         torch.cuda.manual_seed_all(42)
 
     # Determine the device to use
-    device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        "mps"
+        if torch.backends.mps.is_available()
+        else "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
     logger.info(f"Using device: {device}")
 
     # Prepare data
