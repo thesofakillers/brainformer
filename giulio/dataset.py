@@ -7,27 +7,56 @@ import numpy as np
 class EEGMEGDataset(Dataset):
     """Dataset class for EEG to MEG data."""
 
-    def __init__(self, split="train", sequence_length=256):
+    def __init__(
+        self, split="train", sequence_length=256, val_size=0.2, random_seed=42
+    ):
         """
         Initialize the dataset.
 
         Args:
             split (str): Dataset split to use ('train' or 'validation')
             sequence_length (int): Length to truncate sequences to
+            val_size (float): Fraction of data to use for validation (0.0 to 1.0)
+            random_seed (int): Random seed for reproducibility
         """
-        # Load the dataset
-        self.dataset = load_dataset("fracapuano/eeg2meg-medium", split=split)
+        # Load the full dataset
+        full_dataset = load_dataset("fracapuano/eeg2meg-medium", split="train")
+
+        # Calculate split sizes
+        total_size = len(full_dataset)
+        val_samples = int(total_size * val_size)
+        train_samples = total_size - val_samples
+
+        # Create train/val splits
+        if split == "train":
+            self.dataset = full_dataset.select(range(train_samples))
+        elif split == "validation":
+            self.dataset = full_dataset.select(range(train_samples, total_size))
+        else:
+            raise ValueError(f"Invalid split {split}. Must be 'train' or 'validation'")
+
         self.sequence_length = sequence_length
+        self.split = split
 
         # Initialize normalizers
         self.eeg_normalizer = None
         self.meg_normalizer = None
 
-        # Compute normalization parameters on first pass
-        self._compute_normalization_params()
+        # For validation split, we need to get normalization params from training data
+        if split == "validation":
+            # Temporarily load training data to compute normalization params
+            train_data = full_dataset.select(range(train_samples))
+            self._compute_normalization_params(train_data)
+        else:
+            self._compute_normalization_params(self.dataset)
 
-    def _compute_normalization_params(self):
-        """Compute mean and std for normalization."""
+    def _compute_normalization_params(self, data):
+        """
+        Compute mean and std for normalization.
+
+        Args:
+            data: Dataset to compute normalization parameters from
+        """
         # Initialize arrays to store statistics
         eeg_means = []
         eeg_stds = []
@@ -35,7 +64,7 @@ class EEGMEGDataset(Dataset):
         meg_stds = []
 
         # Compute statistics for each sample
-        for sample in self.dataset:
+        for sample in data:
             eeg_data = np.array(sample["eeg_data"])[
                 :, : self.sequence_length
             ]  # (70, 256)
@@ -94,4 +123,3 @@ class EEGMEGDataset(Dataset):
         meg_data = torch.FloatTensor(meg_data).T  # (256, 306)
 
         return eeg_data, meg_data, meg_data  # src, tgt, target
-
