@@ -18,15 +18,16 @@ python train.py \
   --input_channels 70 \
   --output_channels 306 \
   --seq_len 256 \
-  --batch_size 1 \
+  --batch_size 32 \
   --split_data \
   --val_ratio 0.2 \
   --input_file eeg2meg_inputs.pt \
   --output_file eeg2meg_outputs.pt \
   --patch_size 4 \
   --lr 0.0001 \
-  --weight_decay 0.6 \
-  --epochs 100 \
+  --weight_decay 0.1 \
+  --epochs 200 \
+  --save_checkpoints \
   --save_dir checkpoints \
   --save_every 10 \
   --log_every 10 \
