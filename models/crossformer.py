@@ -61,3 +61,104 @@ class CrossFormer(nn.Module):
         output = self.depatcher(decoder_output)
 
         return output
+
+    def configure_optimizers(
+        self,
+        weight_decay,
+        learning_rate,
+        betas,
+        device_type,
+        use_muon=False,
+        muon_momentum=0.95,
+        muon_nesterov=True,
+        muon_ns_steps=5,
+        rank=0,
+        world_size=1,
+    ):
+        """
+        Configure optimizers for the entire model
+        """
+        # Collect all parameters
+        param_dict = {pn: p for pn, p in self.named_parameters() if p.requires_grad}
+
+        # Create optimizer groups
+        # Weight decay for 2D parameters (weights), no decay for 1D parameters (biases, LayerNorms)
+        decay_params = [p for _, p in param_dict.items() if p.dim() >= 2]
+        nodecay_params = [p for _, p in param_dict.items() if p.dim() < 2]
+
+        # Print parameter stats
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+        print(
+            f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters"
+        )
+        print(
+            f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters"
+        )
+
+        # If Muon is requested, use it for 2D parameters (typically weights) and AdamW for the rest
+        if use_muon:
+            from muon import Muon
+
+            # Create Muon optimizer for 2D parameters
+            muon_optimizer = Muon(
+                decay_params,
+                lr=learning_rate,
+                weight_decay=weight_decay,
+                momentum=muon_momentum,
+                nesterov=muon_nesterov,
+                ns_steps=muon_ns_steps,
+                rank=rank,  # Use the provided rank
+                world_size=world_size,  # Use the provided world_size
+            )
+            print(
+                f"Using Muon optimizer for {len(decay_params)} 2D parameter tensors (rank={rank}, world_size={world_size})"
+            )
+
+            # Create AdamW optimizer for 1D parameters
+            # Use fused AdamW if available
+            fused_available = (
+                "fused" in torch.__dict__
+                and hasattr(torch.optim, "AdamW")
+                and hasattr(torch.optim.AdamW.__init__.__code__, "co_varnames")
+                and "fused" in torch.optim.AdamW.__init__.__code__.co_varnames
+            )
+            use_fused = fused_available and device_type == "cuda"
+            extra_args = dict(fused=True) if use_fused else dict()
+
+            adamw_optimizer = torch.optim.AdamW(
+                [{"params": nodecay_params, "weight_decay": 0.0}],
+                lr=learning_rate,
+                betas=betas,
+                **extra_args,
+            )
+            print(
+                f"Using AdamW optimizer for {len(nodecay_params)} non-2D parameter tensors"
+            )
+            print(f"using fused AdamW: {use_fused}")
+
+            # Return a list of optimizers (for use with PyTorch's ZeroRedundancyOptimizer)
+            return [muon_optimizer, adamw_optimizer]
+        else:
+            # Standard optimization with AdamW
+            optim_groups = [
+                {"params": decay_params, "weight_decay": weight_decay},
+                {"params": nodecay_params, "weight_decay": 0.0},
+            ]
+
+            # Use fused AdamW if available
+            fused_available = (
+                "fused" in torch.__dict__
+                and hasattr(torch.optim, "AdamW")
+                and hasattr(torch.optim.AdamW.__init__.__code__, "co_varnames")
+                and "fused" in torch.optim.AdamW.__init__.__code__.co_varnames
+            )
+            use_fused = fused_available and device_type == "cuda"
+            extra_args = dict(fused=True) if use_fused else dict()
+
+            optimizer = torch.optim.AdamW(
+                optim_groups, lr=learning_rate, betas=betas, **extra_args
+            )
+            print(f"using fused AdamW: {use_fused}")
+
+            return optimizer
