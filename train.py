@@ -1,16 +1,15 @@
 import os
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset, random_split
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 from tqdm import tqdm
 import logging
 import wandb
+from torch.utils.data import DataLoader, TensorDataset
 
-from crossformer import CrossFormer
+from models.crossformer import CrossFormer
 
 # Set up logging
 logging.basicConfig(
@@ -163,7 +162,6 @@ def parse_args():
     parser.add_argument(
         "--use_compile",
         action="store_true",
-        default=True,
         help="Whether to use torch.compile for model acceleration",
     )
     parser.add_argument(
@@ -318,8 +316,11 @@ def train_epoch(model, dataloader, criterion, optimizer, device, args, epoch):
     for batch_idx, (inputs, targets) in enumerate(progress_bar):
         inputs, targets = inputs.to(device), targets.to(device)
 
+        inputs = inputs[:, : args.seq_len, :]
+        targets = targets[:, : args.seq_len, :]
+
         # Forward pass
-        outputs = model(inputs)
+        outputs = model(inputs, targets)
         loss = criterion(outputs, targets)
 
         # Backward pass and optimize
@@ -637,13 +638,14 @@ def main():
         torch.cuda.manual_seed_all(42)
 
     # Determine the device to use
-    device = torch.device(
-        "mps"
-        if torch.backends.mps.is_available()
-        else "cuda"
-        if torch.cuda.is_available()
-        else "cpu"
-    )
+    device = "cpu"
+    # device = torch.device(
+    #     "mps"
+    #     if torch.backends.mps.is_available()
+    #     else "cuda"
+    #     if torch.cuda.is_available()
+    #     else "cpu"
+    # )
     logger.info(f"Using device: {device}")
 
     # Prepare data
@@ -656,9 +658,6 @@ def main():
     # Log model configuration
     logger.info(
         f"Model created with {sum(p.numel() for p in model.parameters()):,} parameters"
-    )
-    logger.info(
-        f"Using {'bidirectional' if args.bidirectional else 'causal (unidirectional)'} attention"
     )
 
     # Set up wandb to watch model gradients if wandb is enabled
@@ -678,7 +677,7 @@ def main():
         weight_decay=args.weight_decay,
         learning_rate=args.lr,
         betas=(args.beta1, args.beta2),
-        device_type="cuda" if torch.cuda.is_available() else "cpu",
+        device_type=device,
         use_muon=args.use_muon,
         muon_momentum=args.muon_momentum,
         muon_nesterov=args.muon_nesterov,
