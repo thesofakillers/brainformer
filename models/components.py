@@ -34,7 +34,7 @@ class DecoderBlock(nn.Module):
         super().__init__()
         self.self_attn_layers = nn.ModuleList(
             [
-                TwoStageAttentionLayer(seq_len, tgt_channels, num_heads)
+                TwoStageAttentionLayer(seq_len, tgt_channels, num_heads, is_causal=True)
                 for _ in range(n_layers)
             ]
         )
@@ -77,7 +77,9 @@ class DecoderBlock(nn.Module):
                 projected_encoder_out,
             )
 
-        return cross_attn_output
+            x = cross_attn_output
+
+        return x
 
 
 class Patcher(nn.Module):

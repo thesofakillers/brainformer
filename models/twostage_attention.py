@@ -11,7 +11,7 @@ class TwoStageAttentionLayer(nn.Module):
     input/output shape: [batch_size, number_of_channels (D), number_of_timesegments (L), d_model]
     """
 
-    def __init__(self, seq_len, num_channels, num_heads, dropout=0.1):
+    def __init__(self, seq_len, num_channels, num_heads, dropout=0.1, is_causal=False):
         super().__init__()
         time_embd_dim = num_channels
         time_ff_dim = 4 * time_embd_dim
@@ -40,6 +40,15 @@ class TwoStageAttentionLayer(nn.Module):
         )
 
         self.dropout = nn.Dropout(dropout)
+        self.is_causal = is_causal
+
+        # Generate causal mask once during initialization if needed
+        self.register_buffer(
+            "causal_mask",
+            torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
+            if is_causal
+            else None,
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -51,7 +60,13 @@ class TwoStageAttentionLayer(nn.Module):
         batch, timesteps, num_channels = x.shape
 
         time_in = self.norm1(x)
-        time_enc, _ = self.time_attention(time_in, time_in, time_in)
+        time_enc, _ = self.time_attention(
+            time_in,
+            time_in,
+            time_in,
+            attn_mask=self.causal_mask,
+            is_causal=self.is_causal,
+        )
         time_out = time_in + self.dropout(time_enc)
 
         time_out = self.norm2(time_out)

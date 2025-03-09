@@ -1,12 +1,15 @@
+import argparse
 import os
-import torch
-import torch.nn as nn
+
 import numpy as np
 import matplotlib.pyplot as plt
-import argparse
 from tqdm import tqdm
 import logging
 import wandb
+import torch
+import torch.nn as nn
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import LinearLR, SequentialLR
 from torch.utils.data import DataLoader, TensorDataset
 
 from models.crossformer import CrossFormer
@@ -305,7 +308,9 @@ def create_model(args):
     return model
 
 
-def train_epoch(model, dataloader, criterion, optimizer, device, args, epoch):
+def train_epoch(
+    model, dataloader, criterion, optimizer, device, args, epoch, scheduler=None
+):
     """Train the model for one epoch"""
     model.train()
     epoch_loss = 0
@@ -319,9 +324,18 @@ def train_epoch(model, dataloader, criterion, optimizer, device, args, epoch):
         inputs = inputs[:, : args.seq_len, :]
         targets = targets[:, : args.seq_len, :]
 
-        # Forward pass
-        outputs = model(inputs, targets)
-        loss = criterion(outputs, targets)
+        # Create shifted targets for teacher forcing
+        # Target input: [0, t_1, t_2, ..., t_{n-1}]
+        # Target output: [t_1, t_2, ..., t_n]
+        target_input = torch.zeros_like(targets)
+        target_input[:, 1:, :] = targets[
+            :, :-1, :
+        ]  # Shift right, pad with zeros at start
+        target_output = targets.clone()  # The actual targets we want to predict
+
+        # Forward pass with teacher forcing
+        outputs = model(inputs, target_input)
+        loss = criterion(outputs, target_output)
 
         # Backward pass and optimize
         if isinstance(optimizer, list):
@@ -358,11 +372,22 @@ def train_epoch(model, dataloader, criterion, optimizer, device, args, epoch):
                     "epoch": epoch,
                 }
             )
+    # Step the scheduler if provided
+    if scheduler is not None:
+        scheduler.step()
+        if args.use_wandb:
+            wandb.log(
+                {
+                    "learning_rate": optimizer.param_groups[0]["lr"]
+                    if not isinstance(optimizer, list)
+                    else optimizer[1].param_groups[0]["lr"]
+                }
+            )
 
     return epoch_loss / num_batches
 
 
-def validate(model, dataloader, criterion, device):
+def validate(model, dataloader, criterion, device, seq_len):
     """Validate the model on the validation set"""
     model.eval()
     val_loss = 0
@@ -371,9 +396,21 @@ def validate(model, dataloader, criterion, device):
         for inputs, targets in dataloader:
             inputs, targets = inputs.to(device), targets.to(device)
 
-            # Forward pass
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
+            inputs = inputs[:, :seq_len, :]
+            targets = targets[:, :seq_len, :]
+
+            # Create shifted targets for teacher forcing
+            # Target input: [0, t_1, t_2, ..., t_{n-1}]
+            # Target output: [t_1, t_2, ..., t_n]
+            target_input = torch.zeros_like(targets)
+            target_input[:, 1:, :] = targets[
+                :, :-1, :
+            ]  # Shift right, pad with zeros at start
+            target_output = targets.clone()  # The actual targets we want to predict
+
+            # Forward pass with teacher forcing
+            outputs = model(inputs, target_input)
+            loss = criterion(outputs, target_output)
 
             # Update metrics
             val_loss += loss.item()
@@ -451,13 +488,21 @@ def visualize_predictions(model, dataloader, device, epoch, args):
     # Get a batch of data
     inputs, targets = next(iter(dataloader))
 
-    # Select just one sample to visualize
-    input_sample = inputs[0:1].to(device)
-    target_sample = targets[0:1].to(device)
+    # Select just one sample to visualize but keep batch dimension
+    input_sample = inputs[:1].to(device)  # Shape: [1, seq_len, input_channels]
+    target_sample = targets[:1].to(device)  # Shape: [1, seq_len, output_channels]
+
+    # Ensure we're using the correct sequence length
+    input_sample = input_sample[:, : args.seq_len, :]
+    target_sample = target_sample[:, : args.seq_len, :]
+
+    # Create target input with initial zero
+    target_input = torch.zeros_like(target_sample)
+    target_input[:, 1:, :] = target_sample[:, :-1, :]
 
     # Generate prediction
     with torch.no_grad():
-        prediction = model(input_sample)
+        prediction = model(input_sample, target_input)
 
     # Move tensors to CPU for plotting
     input_sample = input_sample.cpu().numpy()[0]  # Shape: [seq_len, input_channels]
@@ -638,14 +683,13 @@ def main():
         torch.cuda.manual_seed_all(42)
 
     # Determine the device to use
-    device = "cpu"
-    # device = torch.device(
-    #     "mps"
-    #     if torch.backends.mps.is_available()
-    #     else "cuda"
-    #     if torch.cuda.is_available()
-    #     else "cpu"
-    # )
+    device = torch.device(
+        "mps"
+        if torch.backends.mps.is_available()
+        else "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
     logger.info(f"Using device: {device}")
 
     # Prepare data
@@ -686,6 +730,35 @@ def main():
         world_size=world_size,
     )
 
+    # Setup learning rate scheduler with cosine annealing and linear warmup
+    if isinstance(optimizer, list):
+        # For Muon + AdamW case, we only apply scheduler to AdamW
+        opt_for_scheduler = optimizer[1]
+    else:
+        opt_for_scheduler = optimizer
+
+    # Linear warmup for 1 epoch
+    warmup_scheduler = LinearLR(
+        opt_for_scheduler,
+        start_factor=0.1,
+        end_factor=1.0,
+        total_iters=len(train_loader),
+    )
+
+    # Cosine annealing for remaining epochs
+    cosine_scheduler = CosineAnnealingLR(
+        opt_for_scheduler, T_max=(args.epochs - 1) * len(train_loader)
+    )
+
+    # Combine schedulers: linear warmup followed by cosine annealing
+    scheduler = SequentialLR(
+        opt_for_scheduler,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[len(train_loader)],  # Switch after 1 epoch
+    )
+
+    logger.info("Using cosine LR schedule with 1 epoch linear warmup")
+
     # Training loop
     train_losses = []
     val_losses = []
@@ -696,12 +769,12 @@ def main():
     for epoch in range(args.epochs):
         # Train for one epoch
         train_loss = train_epoch(
-            model, train_loader, criterion, optimizer, device, args, epoch
+            model, train_loader, criterion, optimizer, device, args, epoch, scheduler
         )
         train_losses.append(train_loss)
 
         # Validate
-        val_loss = validate(model, val_loader, criterion, device)
+        val_loss = validate(model, val_loader, criterion, device, args.seq_len)
         val_losses.append(val_loss)
 
         # Log epoch results

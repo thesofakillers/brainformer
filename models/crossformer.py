@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from models.components import EncoderBlock, DecoderBlock, Patcher, Depatcher
 
@@ -52,13 +53,19 @@ class CrossFormer(nn.Module):
         )
 
     def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+        # b, 256, C -> b, 64, C
         src_patches = self.src_patcher(src)
         encoder_output = self.encoder(src_patches)
 
+        # b, 256, C -> b, 64, C
         tgt_patches = self.tgt_patcher(tgt)
         decoder_output = self.decoder(tgt_patches, encoder_output)
 
+        # b, 64, C -> b, 256, C
         output = self.depatcher(decoder_output)
+
+        # constrain output to [-1, 1]
+        output = F.tanh(output)
 
         return output
 
